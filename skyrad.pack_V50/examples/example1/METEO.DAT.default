@@ -1,0 +1,7 @@
+- meteorological data(pressure & ozone) -
+"worldwide default"  : comment [40chr]
+"worldwide default"  : observation site/country name [20chr]
+0.0           : longitude[deg] for time standard (0.0 for GMT)
+0.0  0.0  0.0 : longitude[deg] latitude[deg] altitude[m] of obs. site
+1   : NDAY(number of meleor. data)/ YYYY MM DD HR(LST) PRS[atm] O3[cm,STP]
+2000  1  1  0.0   1.0   0.3

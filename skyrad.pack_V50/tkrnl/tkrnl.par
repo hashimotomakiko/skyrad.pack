@@ -1,0 +1,25 @@
+"MIEKER" : output kernel file name (fixed)
+0   9    : IJOB  NUMBER OF KNOT ANGLES
+0.0  1.0  5.0  11.0  15.0  20.0   90.0   170.0  180.0  : KNOT ANGLES
+    5    8    6     2     2     14     16      2       : SUBINTERVAL NUMBER
+1   2    : IJOB  NUMBER OF KNOT SIZES
+0.05   600.0  : KNOT SIZE PARAMETERS
+     59       : SUBDIVISION NUMBER FOR EACH SIZE INTERVAL
+1        : POLARIZATION STATE (0, 1, 2, 4)
+10       : NUMBER OF AVERAGING OVER SUBINTERVAL
+C --- complex refractive indices setting.
+13  0  0.00   0.00 : NCR FGR( 0:free) CRDMY1 CRDMY2
+1.35 1.375 1.40 1.425 1.45 1.475 1.50 1.525 1.55 1.575 1.60 1.625 1.65 : CR
+9   0  0.00   0.00 : NCI FGI( 0:free) CIDMY1 CIDMY2
+0.0  0.001  0.002  0.003  0.005  0.01  0.02  0.03  0.05 : CI
+
+--- examples -------------------------------------------------------------
+7   1  1.35   1.65 : NCR FGR( 1:lin)  CR(1)  CR(NCR)
+8  -1  1.33   1.65 : NCR FGR(-1:log)  CR(1)  CR(NCR)
+8  0  0.00   0.00 : NCR FGR( 0:free) CRDMY1 CRDMY2
+1.333 1.350 1.400 1.450 1.500 1.550 1.600 1.650 : CR
+
+10  1  0.00   0.05 : NCI FGI( 1:lin)  CI(1)  CI(NCI)
+15 -1  0.001  0.05 : NCI FGI(-1:log)  CI(2)  CI(NCI)  ** CI(1)=0.0 **
+9   0  0.00   0.00 : NCI FGI( 0:free) CIDMY1 CIDMY2
+0.0  0.001  0.002  0.003  0.005  0.01  0.02  0.03  0.05 : CI

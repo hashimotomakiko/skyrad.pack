@@ -1,0 +1,8 @@
+- instrument parameters -
+"PS0000000"  : instrument S/N [20chr]
+30  : instrument type (POM-01L:10,11/ POM-01MKII:20,21,22/ POM-01,POM-02:30)
+ 7  : NW(number of wavelengths)/ WL[cm]/ SVA[sr]
+0.315E-04 0.400E-04 0.500E-04 0.675E-04 0.870E-04 0.940E-04 1.020E-04
+2.500E-04 2.500E-04 2.500E-04 2.500E-04 2.500E-04 2.500E-04 2.500E-04
+0   : NDAY(number of calib. constant data)/ YYYY MM DD HR(GMT) F0(IW=1,NW)
+2001  1  1  0.0  0.000E-4 0.000E-4 0.000E-4 0.000E-4 0.000E-4 0.000E-4 0.000E-4

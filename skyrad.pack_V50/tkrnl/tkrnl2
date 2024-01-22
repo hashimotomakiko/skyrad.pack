@@ -1,0 +1,226 @@
+C$OUTF tkrnl2.f
+C$LIBF /Users/makibo/Fortran/LIB/BASLIB/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBC1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM2/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBR1/A
+C$NAME tkrnl2
+C$LINK MIES XSET UTLSPC
+C
+C --- Note
+C   Make the table of kernel matrix
+C   Different read-format for refractive indices
+C
+C --- History
+C 89. 8.17  CREATED FROM PHS:CKRNL (IBM TO MAC)
+C 90.11. 6  INITIALIZE ERR=' ', GOTO 1
+C 97. 2.15  Modified by Rao
+C 98. 6.15  VCI= -x.xx
+C *******************************************************************
+C 01.01.29 Overhauled by M.Yamano for analyzing system Ver.3 & Ver.4.
+C *******************************************************************
+C 01.09.04  Changed input parameters for refractive index
+C 02.05.10  Renewed by M.Yamano for Ver.5.
+C 03.10.25  Renewed.
+c 04.12.06  Start on Mac.
+C
+C --- I/O files
+C  tkrnl.par  I    input parameters for creating kernels
+C  MIEKER     O    output kernel datafile
+C ----------------------------------------------------------------------
+C$PSET KNANG=200; KSIZE=100; KCR=20; KCI=20
+C$PRPC
+      PARAMETER (KNANG=10,KSIZE=10,KCR=10,KCI=10)
+      PARAMETER (KNANG1=KNANG+1,KSIZE1=KSIZE+1)
+      PARAMETER (KNN=10)
+C
+C$PSET MIES.NMMAX=1500; MIES.NMMAX2=2500; MIES.KNANG=KNANG
+C
+      CHARACTER ERC*64
+      CHARACTER OFIL*80
+C-----AREA FOR -MIES-
+      DIMENSION Q(KNANG1,4,KSIZE),THETA(KNANG),XX(KSIZE1)
+C-----WORKING
+      DIMENSION XB(KNN),NB(KNN),VCR(KCR),VCI(KCI)
+C
+      DATA IFORM /2/
+C
+      ERC=' '
+      IUI=1
+      OPEN (IUI,FILE='tkrnl.par',STATUS='OLD')
+      READ(IUI,*) OFIL
+      CALL UTLSPC(OFIL,NL)
+      IF (NL.LE.0) THEN
+         ERC='illegal kernel filename'
+         GOTO 90
+      ENDIF
+C
+C-----SET ANGLES
+      READ(IUI,*) IJOB,NN
+      READ(IUI,*) (XB(I),I=1,NN)
+      READ(IUI,*) (NB(I),I=1,NN-1)
+      CALL XSET(IJOB,NN,XB,NB,KNANG,NANG,THETA,ERC)
+      IF(ERC.NE.' ') GOTO 90
+C
+C-----SET SIZE PARAMETER
+      READ(IUI,*) IJOB,NN
+      READ(IUI,*) (XB(I),I=1,NN)
+      READ(IUI,*) (NB(I),I=1,NN-1)
+      CALL XSET(IJOB,NN,XB,NB,KSIZE1,NSIZE,XX,ERC)
+      IF(ERC.NE.' ') GOTO 90
+      INTVL=NSIZE-1
+      DEL=LOG(XB(2)/XB(1))/INTVL
+C
+C-----READ POLARIZATION STATES, AVERAGING NUMBER, NUMBER OF INDEX
+      READ(IUI,*) IPOL
+      READ(IUI,*) NXI
+C
+C --- Changed.(01/09/04)
+      READ(IUI,*)
+      READ(IUI,*) NCR,IFGR,CRMIN,CRMAX
+      IF (NCR.GT.KCR) THEN
+         ERC='NCR.GT.KCR !'
+         GOTO 90
+      ENDIF
+      IF (IFGR.EQ.0) THEN
+         READ(IUI,*) (VCR(I),I=1,NCR)
+         CRMIN=VCR(1)
+         CRMAX=VCR(NCR)
+      ENDIF
+      READ(IUI,*) NCI,IFGI,CIMIN,CIMAX
+      IF (NCI.GT.KCI) THEN
+         ERC='NCI.GT.KCI !'
+         GOTO 90
+      ENDIF
+      IF (IFGI.EQ.0) THEN
+         READ(IUI,*) (VCI(I),I=1,NCI)
+         CIMIN=VCI(1)
+         CIMAX=VCI(NCI)
+         DO I=1,NCI
+           VCI(I)=-VCI(I)
+         ENDDO
+      ENDIF
+      IF ((NCR.LE.3).OR.(NCI.LE.4)) THEN
+         ERC='illegal setting (NCR or NCI) !'
+         GOTO 90
+      ENDIF
+      IF ((CRMIN.GE.CRMAX).OR.(CIMIN.GE.CIMAX)) THEN
+         ERC='illegal setting (CRMIN or CRMAX or CIMIN or CIMAX) !'
+         GOTO 90
+      ENDIF
+      IF (IFGR.NE.0) THEN
+         IF (IFGR.GT.0) THEN
+            DL=(CRMAX-CRMIN)/FLOAT(NCR-1)
+            CRL=CRMIN-DL
+            DO I=1,NCR
+              CRL=CRL+DL
+              VCR(I)=CRL
+            ENDDO
+         ELSE
+            DL=LOG(CRMAX/CRMIN)/FLOAT(NCR-1)
+            CRL=LOG(CRMIN)-DL
+            DO I=1,NCR
+              CRL=CRL+DL
+              VCR(I)=EXP(CRL)
+            ENDDO
+         ENDIF
+      ENDIF
+      IF (IFGI.NE.0) THEN
+         IF (IFGI.GT.0) THEN
+            DL=(CIMAX-CIMIN)/FLOAT(NCI-1)
+            CIL=CIMIN-DL
+            DO I=1,NCI
+              CIL=CIL+DL
+              VCI(I)=-CIL
+            ENDDO
+         ELSE
+            DL=LOG(CIMAX/CIMIN)/FLOAT(NCI-2)
+            CIL=LOG(CIMIN)-DL
+            VCI(1)=0.0
+            DO I=2,NCI
+              CIL=CIL+DL
+              VCI(I)=-EXP(CIL)
+            ENDDO
+         ENDIF
+      ENDIF
+C
+C --- Output different from the version 2
+C
+      IUO=2
+      OPEN (IUO,FILE=OFIL(1:NL),STATUS='UNKNOWN')
+      WRITE(IUO,10) IFORM
+   10 FORMAT(I3,' : IFORM')
+      WRITE(IUO,11) NCR,NCI
+   11 FORMAT(2I3,' : NCR NCI')
+      WRITE(IUO,12) (VCR(I),I=1,NCR)
+   12 FORMAT(7F11.3)
+      WRITE(IUO,13) (VCI(I),I=1,NCI)
+   13 FORMAT(1P7E11.2)
+C
+C-----COMPLEX REFRACTIVE INDEX LOOP
+C
+      IPOL0=4
+      IREF=0
+      DO ICI=1,NCI
+        DO ICR=1,NCR
+          IREF=IREF+1
+          CRD=VCR(ICR)
+          CID=VCI(ICI)
+C
+C-----MIE CALCULATION WITH INTERVAL AVERAGING
+          CALL MIES(IPOL0,CRD,CID,NSIZE,NXI,XX,NANG,THETA,KNANG1,Q,ERC)
+          IF(ERC.NE.' ') GOTO 90
+C
+          DO I=1,INTVL
+            CO=3.0/4.0/SQRT(XX(I)*XX(I+1))*DEL
+            IF (IPOL0.GE.1) THEN
+               DO K=1,IPOL0
+                 DO J=1,NANG
+                   Q(J,K,I)=Q(J,K,I)*CO
+                 ENDDO
+               ENDDO
+            ENDIF
+            DO K=1,2
+              Q(NANG+1,K,I)=Q(NANG+1,K,I)*CO
+            ENDDO
+          ENDDO
+          IF (IPOL.EQ.1) THEN
+             DO I=1,INTVL
+               DO J=1,NANG
+                 Q(J,1,I)=(Q(J,1,I)+Q(J,2,I))/2.0
+               ENDDO
+             ENDDO
+          ENDIF
+C
+C-----WRITE HEADING DATA
+          IF (IREF.EQ.1) THEN
+             WRITE(IUO,20) INTVL,NANG,IPOL
+   20        FORMAT(3I4)
+             WRITE(IUO,30) (SQRT(XX(I)*XX(I+1)),I=1,INTVL)
+             WRITE(IUO,30) (THETA(I),I=1,NANG)
+   30        FORMAT(1P7E11.3)
+          ENDIF
+C
+C-----WRITE RESULTS
+          WRITE(IUO,40) IREF
+   40     FORMAT('CM',I4)
+          WRITE(IUO,50) CRD,CID
+   50     FORMAT(1P2E11.3)
+          DO I=1,INTVL
+            DO K=1,IPOL
+              WRITE(IUO,30) (Q(J,K,I),J=1,NANG)
+            ENDDO
+          ENDDO
+          DO K=1,2
+            WRITE(IUO,30) (Q(NANG+1,K,I),I=1,INTVL)
+          ENDDO
+        ENDDO
+      ENDDO
+      GOTO 100
+C
+   90 WRITE(IUO,95) ERC
+   95 FORMAT(' ERROR: ',A64)
+C
+ 100  STOP
+      END
+C

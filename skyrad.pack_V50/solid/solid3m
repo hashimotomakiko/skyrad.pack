@@ -1,0 +1,410 @@
+C$OUTF solid3m.f
+C$LIBF /Users/makibo/Fortran/LIB/SKYLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/POMLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/BASLIB/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBC1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBR1/A
+C$NAME solid3m
+C$LINK RDSLDP RDHD30 PRCDSK WTDSKP WTDSKD WTDSKF
+C$LINK GETPOS UTLSPC
+C
+C --- Note
+C   Skyradiometer data processing program
+C   For PREDE instruments POM-01L/POM-01MKII
+C
+C   Calculation of solid view angles.
+C
+C   * Define the scanning is from down to up, from left to right
+C   * Get z=f(th)
+C   * (x, y+vx)=(x0,y0)+Rot(ang) (r cos th, br sin th)
+C   * data are taken with solar movement correction.
+C
+C --- History
+C 95. 2.17 Created from solid3
+C 96. 3. 5 Kazuma Aoki
+C          Created from solid3b
+C          A(IZ,IA)-DMIN
+C 96. 3.10 Created from solid3b
+C          Kazuma Aoki
+C 96. 9.26 Created from solid3m.f
+C          Kazuma Aoki
+C *******************************************************************
+C 01.01.26 Overhauled by M.Yamano for skyrad.pack.
+C *******************************************************************
+C 01.07.06 Renewed by M.Yamano
+C 01.08.17 Modified by M.Yamano
+C 01.10.06 'SVA.out' is added.
+C 02.02.19 Modified by M.Yamano
+C 03.03.20 Renewed.
+C 03.03.26 Changed file name -> (yy)yymmdd.V??
+C 03.11.05 Added processing for ITYP=30 (new format) data.
+C 03.11.18 Modified.
+C 04.12.06 Start on Mac.
+C 06.03.14 Changed control for S/N check in case of ITYP=30
+C
+C --- I/O files
+C  solid.par           I    processing parameters file
+C  ins.para            I    instrument parameters file(any name is OK)
+C  fname               I    processing dates file((yy)yymmdd or DISK?.DAT)
+C  DSK/yymmddnn.V??    I    measured disk-scan data file (ITYP=30)
+C  or  (yy)yymmdd.V??       measured disk-scan data file (ITYP<30)
+C  or  DISK?.DAT
+C  or  disk?.dat
+C  disk??.out          O    solid view angles results
+C  SVA.out             O    merged file of all disk?.out files
+C  disk??.log          O    processing log file
+C  disk??.map          O    disk-scan map data(if IMAP>0)
+C  disk??.fnc          O    response function data(if IFNC>0)
+C  disk??.lst          O    measured data listfile(if ILST>0)
+C  solid3m.tmp         W    work file
+C ----------------------------------------------------------------------
+C$PSET KNW=20; KDAY=50
+C$PSET KN=21; KCH=47; KN2=201
+C$PRPC
+      PARAMETER (KNW=7,KDAY=50)
+C$PRPC
+      PARAMETER (KN=21,KCH=47,KN2=201)
+      PARAMETER (KNN=KN*KN)
+C$PSET RDSLDP.KNW=KNW; RDSLDP.KDAY=KDAY
+C$PSET RDHD30.KNW=KNW
+C$PSET PRCDSK.KN=KN; PRCDSK.KN2=KN2
+C$PSET WTDSKD.KN=KN
+C$PSET WTDSKF.KN2=KN2
+C
+      PARAMETER (PI=3.141592653589793,RAD=PI/180.0)
+C
+      CHARACTER ERC*64
+      CHARACTER ALINE*255,ALIN0*255,FNM*80,CCH*3,MRK*1
+      CHARACTER DFIL*80,OFIL*80,RFIL*80,SFIL*80,CFIL*80,LFIL*80,WFIL*80
+      CHARACTER SRNO*20,SRNOO*20,SRNOD*7
+      DIMENSION WL(KNW),WLO(KNW)
+      DIMENSION DX(KN,KN),DY(KN,KN),AM(KN,KN),RM(KN,KN),ZM(KN,KN)
+     &         ,RRR(KN2),ZZZ(KN2)
+C
+      DATA DR,AERR /0.02, 0.2/
+      DATA SRNOD /'0000000'/
+C
+      ERC=' '
+      IUI=1
+      OPEN (IUI,FILE='solid.par',STATUS='OLD')
+      CALL RDSLDP(IUI,IMAP,IFNC,ILST,SRNOO,ITYP,NZ,NA,DA,NCH,WLO,ERC)
+      CLOSE (IUI)
+      IF (ERC.NE.' ') GOTO 900
+C
+      IF (ITYP.LT.20) THEN
+         IRK=5
+      ELSE
+         IRK=3
+      ENDIF
+      NDR=2.5/DR+1
+      DO I=1,NDR
+        RRR(I)=(I-1)*DR
+      ENDDO
+C
+C --- processing
+C
+      IUO=2
+      IUF=3
+      IUR=4
+      IUS=7
+      IUC=8
+      IUL=9
+      IUW=10
+      WFIL='solid3m.tmp'
+      IUT=12
+      OPEN (IUT,FILE='SVA.out',STATUS='UNKNOWN')
+      DO ICH=1,NCH
+        WRITE(CCH,10) ICH+100
+   10   FORMAT(I3)
+        IF (ICH.LT.10) THEN
+           IST=3
+        ELSE
+           IST=2
+        ENDIF
+        IFIRST=0
+        OPEN (IUF,FILE='fname',STATUS='OLD')
+        NDT=0
+        NAV=0
+        SVAA=0.
+C
+   20   READ(IUF,25,END=200,ERR=200) FNM
+   25   FORMAT(A80)
+        CALL GETPOS(FNM,'.',80,IL)
+        IF (IL.EQ.1) GOTO 200
+        IF (IL.GT.0) FNM=FNM(1:IL-1)
+        CALL UTLSPC(FNM,NFNM)
+        IF (ITYP.GE.30) THEN
+           DFIL='DSK/'//FNM(1:NFNM)//'.V'//CCH(2:3)
+        ELSE
+           IF (FNM(1:4).EQ.'DISK') THEN
+              DFIL='DSK/DISK'//CCH(IST:3)//'.DAT'
+           ELSEIF (FNM(1:4).EQ.'disk') THEN
+              DFIL='DSK/disk'//CCH(IST:3)//'.dat'
+           ELSE
+              DFIL='DSK/'//FNM(1:NFNM)//'.V'//CCH(2:3)
+           ENDIF
+        ENDIF
+        IFG=0
+        OPEN (IUI,FILE=DFIL,STATUS='OLD',ERR=100)
+        IF (ITYP.GE.30) THEN
+           CALL RDHD30(IUI,SRNO,ALNGS,ALNG,ALAT,NW,WL,ERC)
+           IF (ERC.EQ.' ') THEN
+              WL0=WLO(ICH)*1.E7
+              IF (NCH.EQ.NW) THEN
+                 IF (ABS(WL0-WL(ICH)).GE.1.) ERC='Wavelength mismatch !'
+              ELSE
+                 NFG=0
+                 N=0
+                 DO WHILE ((NFG.EQ.0).AND.(N.LT.NW))
+                   N=N+1
+                   IF (ABS(WL0-WL(N)).LT.1.) NFG=1
+                 ENDDO
+                 IF (NFG.EQ.0) ERC='Wavelength mismatch !'
+              ENDIF
+c             IF (NCH.NE.NW) ERC='Number of wavelength mismatch !'
+              IF (SRNO.NE.SRNOO) THEN
+                 IF (SRNO(1:7).EQ.SRNOD) THEN
+c                   WRITE(*,27) FNM(1:NFNM),CCH(2:3)
+c  27               FORMAT('No check for S/N! in file (',A8,'.V',A2,')')
+                 ELSE
+                    ERC='S/N mismatch !'
+                 ENDIF
+              ENDIF
+           ENDIF
+           IF (ERC.NE.' ') THEN
+              WRITE(*,28) FNM(1:NFNM),CCH(2:3),ERC
+   28         FORMAT('Skip file (',A8,'.V',A2,') : ',A64)
+              ERC=' '
+              GOTO 20
+           ENDIF
+        ENDIF
+C
+   30   READ(IUI,35,ERR=100,END=100) ALINE
+   35   FORMAT(A255)
+        IF (ALINE(1:1).EQ.' ') ALINE=ALINE(2:255)
+        IF (ALINE(1:10).EQ.'          ') GOTO 30
+        IF (ALINE(IRK:IRK).EQ.'/') THEN
+           CLOSE(IUW)
+C
+           IF (IFG.GT.0) THEN
+              OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+              CALL PRCDSK(IUW,ITYP,IY,IM,ID,TIM
+     &                   ,NZ,NA,DA,DX,DY,AM,BX1,BY1,RAA,BET,SVA,RM,ZM
+     &                   ,NDR,RRR,ZZZ,EROR,ERC)
+              CLOSE(IUW)
+              WRITE(IUR,40) IY,IM,ID,TIM,ERC
+   40         FORMAT(I4,2I3,F6.2,1X,A63)
+              IF (ERC.EQ.' ') THEN
+                 IF (EROR.LT.AERR) THEN
+                    NAV=NAV+1
+                    SVAA=SVAA+SVA
+                    MRK='*'
+                 ELSE
+                    MRK=' '
+                 ENDIF
+                 CALL WTDSKP(IUO,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                      ,EROR,MRK)
+                 CALL WTDSKP(IUT,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                      ,EROR,MRK)
+                 IF (IMAP.GT.0)
+     &              CALL WTDSKD(IUS,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                         ,EROR,MRK,NZ,NA,DX,DY,RM,AM,ZM,ZZZ(1))
+                 IF (IFNC.GT.0)
+     &              CALL WTDSKF(IUC,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                         ,EROR,MRK,NDR,RRR,ZZZ)
+              ENDIF
+           ENDIF
+C
+           NDT=NDT+1
+           ALIN0=ALINE
+           OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+           WRITE(IUW,35) ALIN0
+           IF (IFIRST.EQ.0) THEN
+              RFIL='disk'//CCH(2:3)//'.log'
+              OPEN (IUR,FILE=RFIL,STATUS='UNKNOWN')
+              OFIL='disk'//CCH(2:3)//'.out'
+              OPEN (IUO,FILE=OFIL,STATUS='UNKNOWN')
+              WRITE(IUO,43) ICH,WLO(ICH)*1E4
+              WRITE(IUT,43) ICH,WLO(ICH)*1E4
+   43         FORMAT('CH = ',I2,'   WL = ',F7.3
+     &             //' No YYYY MM DD   HR      X0      Y0'
+     &              ,'    Lambda   Beta    SVA        error')
+              IF (IMAP.GT.0) THEN
+                 SFIL='disk'//CCH(2:3)//'.map'
+                 OPEN (IUS,FILE=SFIL,STATUS='UNKNOWN')
+              ENDIF
+              IF (IFNC.GT.0) THEN
+                 CFIL='disk'//CCH(2:3)//'.fnc'
+                 OPEN (IUC,FILE=CFIL,STATUS='UNKNOWN')
+              ENDIF
+              IF (ILST.GT.0) THEN
+                 LFIL='disk'//CCH(2:3)//'.lst'
+                 OPEN (IUL,FILE=LFIL,STATUS='UNKNOWN')
+              ENDIF
+              IFIRST=1
+           ENDIF
+           IF (ILST.GT.0) WRITE(IUL,45) NDT,ALIN0
+   45      FORMAT(I3,2X,A72)
+           IFG=1
+c          print*,ALIN0
+        ELSE
+           WRITE(IUW,35) ALINE
+        ENDIF
+        GOTO 30
+C
+  100   CLOSE(IUW)
+        IF (IFG.GT.0) THEN
+           OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+           CALL PRCDSK(IUW,ITYP,IY,IM,ID,TIM
+     &                ,NZ,NA,DA,DX,DY,AM,BX1,BY1,RAA,BET,SVA,RM,ZM
+     &                ,NDR,RRR,ZZZ,EROR,ERC)
+           CLOSE(IUW)
+           WRITE(IUR,40) IY,IM,ID,TIM,ERC
+           IF (ERC.EQ.' ') THEN
+              IF (EROR.LT.AERR) THEN
+                 NAV=NAV+1
+                 SVAA=SVAA+SVA
+                 MRK='*'
+              ELSE
+                 MRK=' '
+              ENDIF
+              CALL WTDSKP(IUO,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                   ,EROR,MRK)
+              CALL WTDSKP(IUT,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                   ,EROR,MRK)
+              IF (IMAP.GT.0)
+     &           CALL WTDSKD(IUS,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                      ,EROR,MRK,NZ,NA,DX,DY,RM,AM,ZM,ZZZ(1))
+              IF (IFNC.GT.0)
+     &           CALL WTDSKF(IUC,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                      ,EROR,MRK,NDR,RRR,ZZZ)
+           ENDIF
+        ENDIF
+        CLOSE(IUI)
+        GOTO 20
+C
+  200   CLOSE(IUF)
+        IF (IFIRST.GT.0) THEN
+           IF (NAV.GT.0) THEN
+              SVAA=SVAA/FLOAT(NAV)
+              WRITE(IUO,210) AERR,SVAA,NAV
+              WRITE(IUT,210) AERR,SVAA,NAV
+  210         FORMAT(/33X,'ave.( error <',0PF4.1,' ) =',1PE10.3
+     &                ,9X,'[',I3,']')
+           ELSE
+              WRITE(IUO,220) AERR,NAV
+              WRITE(IUT,220) AERR,NAV
+  220         FORMAT(/33X,'ave.( error <',0PF4.1,' ) = *********'
+     &                ,9X,'[',I3,']')
+           ENDIF
+        ENDIF
+        CLOSE(IUO)
+        CLOSE(IUR)
+        CLOSE(IUS)
+        CLOSE(IUC)
+        CLOSE(IUL)
+      ENDDO
+C
+      CLOSE(IUT)
+      OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+      CLOSE (IUW,STATUS='DELETE')
+C
+  900 IF (ERC.NE.' ') WRITE(*,*) 'ERROR CODE: ', ERC
+C
+ 1000 STOP
+      END
+C
+      SUBROUTINE PRCDSK(IU,ITYP,IY,IM,ID,TIM
+     &                 ,NZ,NA,DA,DX,DY,AM,BX1,BY1,RAA,BET,SVA,RM,ZM
+     &                 ,NDR,RRR,ZZZ,EROR,ERC)
+C$NAME PRCDSK
+C$LINK RDDISK CALSVA
+C$PRPC
+      PARAMETER (KN=21,KN2=201)
+      PARAMETER (KNN=KN*KN)
+C$PSET RDDISK.KN=KN
+C$PSET CALSVA.KN=KN; CALSVA.KN2=KN2
+C
+      PARAMETER (PI=3.141592653589793,RAD=PI/180.0)
+C
+      CHARACTER ERC*(*)
+      DIMENSION AO(KN,KN)
+      DIMENSION DX(KN,KN),DY(KN,KN),AM(KN,KN),RM(KN,KN),ZM(KN,KN)
+     &         ,RRR(KN2),ZZZ(KN2)
+C
+      ERC=' '
+      CALL RDDISK(IU,ITYP,IY,IM,ID,JH,JM,JS,NZ,NA,AO,ERC)
+      IF (ERC.NE.' ') GOTO 900
+C
+      TIM=JH+JM/60.+JS/3600.
+C
+      DMIN=AO(1,1)
+      DO IA=1,NA
+        DO IZ=1,NZ
+          IF (AO(IZ,IA).LT.DMIN) DMIN=AO(IZ,IA)
+        ENDDO
+      ENDDO
+      DO IA=1,NA
+        DO IZ=1,NZ
+          AM(IZ,IA)=AO(IZ,IA)-DMIN
+          DX(IZ,IA)=DA*(IA-(NA+1)/2)
+          DY(IZ,IA)=-DA*(IZ-(NZ+1)/2)
+        ENDDO
+      ENDDO
+      CALL CALSVA(NZ,NA,DX,DY,AM,BX1,BY1,RAA,BET,SVA,RM,ZM
+     &                 ,NDR,RRR,ZZZ,EROR,ERC)
+C
+  900 RETURN
+      END
+C
+      SUBROUTINE WTDSKP(IU,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                 ,EROR,MRK)
+C$NAME WTDSKP
+C 
+      CHARACTER MRK*1
+C
+      WRITE(IU,10) NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA,EROR,MRK
+   10 FORMAT(I3,I5,2I3,F7.3,2F8.3,F8.2,F8.4,1P2E11.3,1X,A1)
+      RETURN
+      END
+C
+      SUBROUTINE WTDSKD(IU,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                    ,EROR,MRK,NZ,NA,DX,DY,RM,AM,ZM,ZZZ1)
+C$NAME WTDSKD
+C$LINK WTDSKP
+C$PRPC
+      PARAMETER (KN=21)
+C
+      CHARACTER MRK*1
+      DIMENSION DX(KN,KN),DY(KN,KN),AM(KN,KN),RM(KN,KN),ZM(KN,KN)
+C
+      CALL WTDSKP(IU,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA,EROR,MRK)
+      DO IA=1,NA
+        DO IZ=1,NZ
+          WRITE(IU,10) DX(IZ,IA)-BX1,DY(IZ,IA)-BY1
+     &                ,RM(IZ,IA),AM(IZ,IA)/ZZZ1,ZM(IZ,IA)
+   10     FORMAT(2F8.3,1P3E12.4)
+        ENDDO
+      ENDDO
+      RETURN
+      END
+C
+      SUBROUTINE WTDSKF(IU,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA
+     &                    ,EROR,MRK,NDR,RRR,ZZZ)
+C$NAME WTDSKF
+C$LINK WTDSKP
+C$PRPC
+      PARAMETER (KN2=201)
+C
+      CHARACTER MRK*1
+      DIMENSION RRR(KN2),ZZZ(KN2)
+C
+      CALL WTDSKP(IU,NDT,IY,IM,ID,TIM,BX1,BY1,RAA,BET,SVA,EROR,MRK)
+      DO I=1,NDR
+        WRITE(IU,10) RRR(I),ZZZ(I)/ZZZ(1)
+   10   FORMAT(F6.2,1PE11.3)
+      ENDDO
+      RETURN
+      END
+C

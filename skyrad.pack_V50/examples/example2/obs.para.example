@@ -1,0 +1,9 @@
+- observation parameters -
+"Example"            : project name (or comment) [40chr]
+"PREDE Co.,Ltd."     : observation site (or ship) name [20chr]
+"JAPAN"              : country (or nationality) name [20chr]
+135.0                : longitude[deg] for time standard (0.0 for GMT)
+139.323  35.752  0.0 : longitude[deg] latitude[deg] altitude[m] of obs. site
+24                   : NA(number of angles)/ SA(scattering angles[deg])
+   0    2    3    4    5    7   10   15   20   25   30   40
+  50   60   70   80   90  100  110  120  130  140  150  160

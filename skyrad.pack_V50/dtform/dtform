@@ -1,0 +1,1061 @@
+C$OUTF dtform.f
+C$LIBF /Users/makibo/Fortran/LIB/SKYLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/POMLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/CCDLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/ANGLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/MATLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/BASLIB/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBR1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM1/A
+C$NAME dtform
+C$LINK RDDTFP RDHD30 WTTAG0 WTDAT3 WTDAT4
+C$LINK GETPOS UTLSPC
+C
+C --- Note
+C   Skyradiometer data processing program
+C   For PREDE instruments POM-01L/POM-01MKII
+C
+C  (1) Datafile Conversions for skyradiance analyses
+C
+C --- history
+C  2001.02.14 Created by M.Yamano
+C  2001.04.17 Modified to accept new file name(yyyymmdd.dat).
+C  2001.07.13 Added output tag file(Tag/yymmdd.tag).
+C  2001.08.03 Changed log file to single file(dtform.log).
+C  2001.08.22 Time in tag file is always LT.
+C  2001.09.05 Changed tag file format.
+C  2001.10.08 Renewed.
+C  2002.05.19 Renewed by M.Yamano for Ver.5.
+C  2002.11.23 Modified.
+C  2002.12.04 Renewed.
+C  2003.03.06 Added procedure for ITYP=22.
+C  2003.06.03 FG0 priority: FGN > FGN0 > FGP> FGP0 > FGF > FGF0 (sub AGCRCT)
+C  2003.06.04 DPMX=10/ DFMX=2/ DNMX=0.5 (sub AGCRCT)
+C  2003.11.18 Added processing for ITYP=30 (new format) data.
+C  2004.01.14 Debugged.
+C  2004.01.19 direct data only(NA=1) are available in sub DTLAND & DTLND2.
+C  2004.12.06 Start on Mac.
+C  2006.03.14 Changed control for S/N check in case of ITYP=30
+C
+C --- I/O files
+C  dtform.par          I    processing control file
+C  obs.para            I    observation parameters file(any name is OK)
+C  ins.para            I    instrument parameters file(any name is OK)
+C  CCD.para            I    CCD parameters file for POM-01MKII(any name is OK)
+C  fname               I    processing dates file
+C  DAT/yymmddnn.dat    I    measurement data file (ITYP=30)
+C  or  yymmdd.DAT           measurement data file (ITYP<30)
+C  or  yyyymmdd.dat
+C  DT3/(yy)yymmdd.DT3  O    input file for analysis ver.3(if IDT3>0)
+C  DT4/(yy)yymmdd.DT4  O    input file for analysis ver.4(if IDT4>0)
+C  DT5/(yy)yymmdd.DT5  O    input file for analysis ver.5(if IDT5>0)
+C  Lst/(yy)yymmdd.lst  O    measurement data list file(if ILST>0)
+C  Tag/(yy)yymmdd.tag  O    tag file for available measurements
+C  dtform.tag          O    merged tag file of all Tag/*.tag files
+C  dtform.log          O    processing log file
+C  (yy)yymmdd.fg       O    calculated Fg angle log file(if IDBG>0)
+C  (yy)yymmdd.fi       O    calculated azimuth angle log file(if IDBG>0)
+C  (yy)yymmdd.ht       O    calculated height angle log file(if IDBG>0)
+C  (yy)yymmdd.fgM      O    calculated average Fg angle log file(if IDBG>0)
+C  dtform.tmp          W    work file
+C ----------------------------------------------------------------------
+C$PSET KNW=20; KNA=50; KDAY=30
+C$PRPC
+      PARAMETER (KNW=7,KNA=50,KDAY=30)
+C$PSET RDDTFP.KNW=KNW; RDDTFP.KNA=KNA; RDDTFP.KDAY=KDAY
+C$PSET RDHD30.KNW=KNW
+C$PSET DTLND2.KNW=KNW; DTLND2.KNA=KNA
+C$PSET DTLAND.KNW=KNW; DTLAND.KNA=KNA
+C$PSET DTSHIP.KNW=KNW; DTSHIP.KNA=KNA
+C$PSET WTDAT3.KNW=KNW; WTDAT3.KNA=KNA
+C$PSET WTDAT4.KNW=KNW; WTDAT4.KNA=KNA
+C
+      CHARACTER ERC*64
+      CHARACTER ALINE*256,ALIN0*256,FNM*80,MRK*1
+      CHARACTER DFIL*80,OFL1*80,OFL2*80,OFL3*80,LFIL*80,TFIL*80
+     &         ,WFIL*80,WFL1*80,WFL2*80,WFL3*80,WFL4*80
+C
+      CHARACTER CMNT*40,SITE*20,CNTY*20,SRNO*20,SRNOO*20,SRNOD*7
+      DIMENSION WLO(KNW),WL(KNW),SOLID(KNW),SA(KNA),THM(KNA),FIM(KNA)
+     &         ,TH(KNW,KNA),FI(KNW,KNA),U(KNW,KNA),U2(KNW,KNA)
+      DIMENSION FC(5)
+C
+      DATA SRNOD /'0000000'/
+C
+      ERC=' '
+      IUI=1
+      OPEN (IUI,FILE='dtform.par',STATUS='OLD')
+      CALL RDDTFP(IUI,IDT3,IDT4,IDT5,ILST,IDBG,IANG
+     &               ,CMNT,SITE,CNTY,ALNGSO,ALNGO,ALATO,ALT,NA0,SA
+     &               ,SRNOO,ITYP,NWO,WLO,SOLID
+     &               ,PT0,RL0,DHT,DFAI
+     &               ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC,ERC)
+      CLOSE (IUI)
+      IF (ERC.NE.' ') GOTO 900
+C
+      IF ((ITYP.LT.20).OR.(ITYP.GE.30)) THEN
+         IF (SA(1).GE.0.1) THEN
+            ERC='No direct measurement !'
+            GOTO 900
+         ENDIF
+      ENDIF
+C
+      IF ((ITYP.EQ.10).OR.(ITYP.GE.30)) THEN
+         MRK='/'
+      ELSE
+         MRK=':'
+      ENDIF
+C
+C --- processing
+C
+      IUO1=2
+      IUO2=3
+      IUO3=4
+      IUL=8
+      IUT=9
+      IUW=10
+      WFIL='dtform.tmp'
+      IUTG=20
+      OPEN (IUTG,FILE='dtform.tag',STATUS='UNKNOWN')
+      IUR=21
+      OPEN (IUR,FILE='dtform.log',STATUS='UNKNOWN')
+      IUF=7
+      OPEN (IUF,FILE='fname',STATUS='OLD')
+      MTG=0
+C
+  110 READ(IUF,112,END=800,ERR=800) FNM
+  112 FORMAT(A80)
+      CALL GETPOS(FNM,'.',80,IL)
+      IF (IL.EQ.1) GOTO 800
+      IF (IL.GT.0) FNM=FNM(1:IL-1)
+      CALL UTLSPC(FNM,NFNM)
+C
+      WRITE(IUR,115) FNM(1:NFNM)
+  115 FORMAT(A8,'.log')
+      TFIL='Tag/'//FNM(1:NFNM)//'.tag'
+      OPEN (IUT,FILE=TFIL,STATUS='UNKNOWN')
+      IF (ITYP.GE.30) THEN
+         DFIL='DAT/'//FNM(1:NFNM)//'.dat'
+      ELSE
+         IF (NFNM.EQ.6) THEN
+            DFIL='DAT/'//FNM(1:NFNM)//'.DAT'
+         ELSE
+            DFIL='DAT/'//FNM(1:NFNM)//'.dat'
+         ENDIF
+      ENDIF
+      OPEN (IUI,FILE=DFIL,STATUS='OLD')
+      IF (ITYP.GE.30) THEN
+         CALL RDHD30(IUI,SRNO,ALNGS,ALNG,ALAT,NW,WL,ERC)
+         IF (ERC.EQ.' ') THEN
+            DLGS=ABS(ALNGSO-ALNGS)
+            DLG=ABS(ALNGO-ALNG)
+            DLT=ABS(ALATO-ALAT)
+            IF ((DLGS.GE.0.5).OR.(DLG.GE.0.01).OR.(DLT.GE.0.01))
+     &                     ERC='Longitude or latitude mismatch !'
+            IF (NW.NE.NWO) ERC='Number of wavelength mismatch !'
+            IF (SRNO.NE.SRNOO) THEN
+               IF (SRNO(1:7).EQ.SRNOD) THEN
+c                 WRITE(*,117) FNM(1:NFNM)
+c 117             FORMAT('No check for S/N! in file (',A8,'.dat)')
+               ELSE
+                  ERC='S/N mismatch !'
+               ENDIF
+            ENDIF
+            IW=0
+            DO WHILE ((IW.LT.NW).AND.(ERC.EQ.' '))
+              IW=IW+1
+              WL0=WLO(IW)*1.E7
+              IF (ABS(WL0-WL(IW)).GE.1.) ERC='Wavelength mismatch !'
+            ENDDO
+         ENDIF
+         IF (ERC.EQ.' ') THEN
+            DO IW=1,NW
+              WL(IW)=WL(IW)*1.E-7
+            ENDDO
+         ELSE
+            WRITE(*,118) FNM(1:NFNM),ERC
+  118       FORMAT('Skip file (',A8,'.dat) : ',A64)
+            ERC=' '
+            GOTO 110
+         ENDIF
+      ELSE
+         NW=NWO
+         DO IW=1,NW
+           WL(IW)=WLO(IW)
+         ENDDO
+         ALNGS=ALNGSO
+         ALNG=ALNGO
+         ALAT=ALATO
+      ENDIF
+C
+      IF (IDT3.GT.0) THEN
+         OFL1='DT3/'//FNM(1:NFNM)//'.DT3'
+         OPEN (IUO1,FILE=OFL1,STATUS='UNKNOWN')
+      ENDIF
+      IF (IDT4.GT.0) THEN
+         OFL2='DT4/'//FNM(1:NFNM)//'.DT4'
+         OPEN (IUO2,FILE=OFL2,STATUS='UNKNOWN')
+      ENDIF
+      IF (IDT5.GT.0) THEN
+         OFL3='DT5/'//FNM(1:NFNM)//'.DT5'
+         OPEN (IUO3,FILE=OFL3,STATUS='UNKNOWN')
+      ENDIF
+      IF (ILST.GT.0) THEN
+         LFIL='Lst/'//FNM(1:NFNM)//'.lst'
+         OPEN (IUL,FILE=LFIL,STATUS='UNKNOWN')
+      ENDIF
+      IF (IDBG.GT.0) THEN
+         WFL1=FNM(1:NFNM)//'.fg'
+         OPEN (IUW+1,FILE=WFL1,STATUS='UNKNOWN')
+         WFL2=FNM(1:NFNM)//'.fi'
+         OPEN (IUW+2,FILE=WFL2,STATUS='UNKNOWN')
+         WFL3=FNM(1:NFNM)//'.ht'
+         OPEN (IUW+3,FILE=WFL3,STATUS='UNKNOWN')
+         WFL4=FNM(1:NFNM)//'.fgM'
+         OPEN (IUW+4,FILE=WFL4,STATUS='UNKNOWN')
+         NG1=0
+         NG2=0
+      ENDIF
+      NTG=0
+      IFG=0
+      NDT=0
+C
+  120 READ(IUI,121,ERR=200,END=200) ALINE
+  121 FORMAT(A256)
+      IF (ALINE(1:1).EQ.' ') ALINE=ALINE(2:256)
+      IF (ALINE(1:10).EQ.'          ') GOTO 120
+      IF (ALINE(3:3).EQ.MRK) THEN
+         CLOSE(IUW)
+C
+         IF (IFG.GT.0) THEN
+            OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+            IF (ITYP.GE.30) THEN
+               CALL DTLND2(IUW,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                    ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                    ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+            ELSEIF (ITYP.LT.20) THEN
+               CALL DTLAND(IUW,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                    ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                    ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+            ELSE
+               CALL DTSHIP(IUW,ITYP,IANG,IDBG,NG1,NG2,ALNGS,NW,WL,SOLID
+     &                    ,IY,IM,ID,JH,JM,JS,TM,ALAT,ALNG,NA
+     &                    ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2
+     &                    ,PT0,RL0,DHT,DFAI,SH0,SV0,ASPN,CSA,DZN
+     &                    ,FH0,FV0,ASPF,CO,DFI,FC,ERC,IFLG)
+            ENDIF
+            CLOSE(IUW)
+            WRITE(IUR,125) ERC
+  125       FORMAT(A64)
+            IF (IFLG.EQ.0) THEN
+               NTG=NTG+1
+               SAMX=SA(NA)
+               CALL WTTAG0(IUT,NTG,IY,IM,ID,TM,ALNG,ALAT,TH0,SAMX)
+               MTG=MTG+1
+               IF (MTG.EQ.1) WRITE(IUTG,130)
+  130          FORMAT('  TNo  No yyyy mm dd Hour   Long    Lat    '
+     &               ,'Hs    SA(max)')
+               WRITE(IUTG,140) MTG,NTG,IY,IM,ID,TM,ALNG,ALAT,90.0-TH0
+     &                        ,SA(NA)
+  140          FORMAT(I5,I4,I5,2I3,F6.2,F8.2,2F7.2,F6.1)
+               IF (IDT3.GT.0)
+     &            CALL WTDAT3(IUO1,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                       ,ALT,NA,TH0,FAI,DST,NW,WL,THM,FIM,U)
+               IF (IDT4.GT.0)
+     &            CALL WTDAT4(IUO2,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                       ,ALT,NA,TH0,FAI,DST,NW,WL,TH,FI,U)
+               IF (IDT5.GT.0)
+     &            CALL WTDAT4(IUO3,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                       ,ALT,NA,TH0,FAI,DST,NW,WL,TH,FI,U)
+            ENDIF
+         ENDIF
+C
+         NDT=NDT+1
+         ALIN0=ALINE
+         OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+         WRITE(IUW,121) ALIN0
+         IF (ILST.GT.0) WRITE(IUL,150) NDT,ALIN0
+  150    FORMAT(I3,2X,A72)
+         IFG=1
+c        print*,ALIN0
+      ELSE
+         WRITE(IUW,121) ALINE
+      ENDIF
+      GOTO 120
+C
+  200 CLOSE(IUW)
+      IF (IFG.GT.0) THEN
+         OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+         IF (ITYP.GE.30) THEN
+            CALL DTLND2(IUW,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                 ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+         ELSEIF (ITYP.LT.20) THEN
+            CALL DTLAND(IUW,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                 ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+         ELSE
+            CALL DTSHIP(IUW,ITYP,IANG,IDBG,NG1,NG2,ALNGS,NW,WL,SOLID
+     &                 ,IY,IM,ID,JH,JM,JS,TM,ALAT,ALNG,NA
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2
+     &                 ,PT0,RL0,DHT,DFAI,SH0,SV0,ASPN,CSA,DZN
+     &                 ,FH0,FV0,ASPF,CO,DFI,FC,ERC,IFLG)
+         ENDIF
+         CLOSE(IUW)
+         WRITE(IUR,125) ERC
+         IF (IFLG.EQ.0) THEN
+            NTG=NTG+1
+            SAMX=SA(NA)
+            CALL WTTAG0(IUT,NTG,IY,IM,ID,TM,ALNG,ALAT,TH0,SAMX)
+            MTG=MTG+1
+            IF (MTG.EQ.1) WRITE(IUTG,130)
+            WRITE(IUTG,140)MTG,NTG,IY,IM,ID,TM,ALNG,ALAT,90.0-TH0,SA(NA)
+            IF (IDT3.GT.0)
+     &         CALL WTDAT3(IUO1,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                    ,ALT,NA,TH0,FAI,DST,NW,WL,THM,FIM,U)
+            IF (IDT4.GT.0)
+     &         CALL WTDAT4(IUO2,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                    ,ALT,NA,TH0,FAI,DST,NW,WL,TH,FI,U)
+            IF (IDT5.GT.0)
+     &         CALL WTDAT4(IUO3,IY,IM,ID,JH,JM,JS,TM,ALNGS,ALNG,ALAT
+     &                    ,ALT,NA,TH0,FAI,DST,NW,WL,TH,FI,U)
+         ENDIF
+      ENDIF
+      CLOSE(IUI)
+      CLOSE(IUL)
+      CLOSE(IUO1)
+      CLOSE(IUO2)
+      CLOSE(IUO3)
+      CLOSE(IUT)
+      GOTO 110
+C
+  800 CLOSE (IUF)
+      OPEN (IUW,FILE=WFIL,STATUS='UNKNOWN')
+      CLOSE (IUW,STATUS='DELETE')
+      GOTO 1000
+C
+  900 WRITE(*,*) 'ERROR CODE: ', ERC
+ 1000 STOP
+      END
+C
+      SUBROUTINE DTLND2(IUI,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                 ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+C$NAME DTLND2
+C$LINK RDDT30 SUNH
+C$LINK INTENS SCAANG DEG
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C$PSET RDDT30.KNW=KNW; RDDT30.KNA=KNA
+C$PSET INTENS.KNW=KNW; INTENS.KNA=KNA
+C
+      CHARACTER ERC*(*)
+      CHARACTER ATIME*8,DMY*9
+      DIMENSION WL(KNW),SOLID(KNW),SA(KNA),THM(KNA),FIM(KNA)
+     &         ,TH(KNW,KNA),FI(KNW,KNA),U(KNW,KNA),U2(KNW,KNA)
+      DIMENSION HTS(KNA)
+      DIMENSION AP(KNA),HP(KNA)
+C
+      DT=51.0/3600.0
+C
+      ERC=' '
+      IFLG=-9
+      CALL RDDT30(IUI,NW,IY,IM,ID,JH,JM,JS,JFLG,NA,AP,HP,U,ERC)
+      IF (ERC.NE.' ') GOTO 900
+      IF (NA.GT.NA0) NA=NA0
+C
+      WRITE(DMY,10) 100+JH,100+JM,100+JS
+   10 FORMAT(3I3)
+      ATIME=DMY(2:3)//':'//DMY(5:6)//':'//DMY(8:9)
+      ERC=ATIME//'  '
+      IFLG=0
+      IF (NA.LE.0) THEN
+         ERC(11:25)='DTLND2: NO DATA'
+         IFLG=-8
+         GOTO 900
+      ENDIF
+C
+      TM=JH+JM/60.0+JS/3600.0
+      CALL SUNH(IY,IM,ID,TM,ALAT,ALNG,ALNGS,DT,DST,HGT,FAI)
+      FAI=DEG(FAI,0)
+      TH0=90.-HGT
+C
+      DAP=AP(1)-FAI
+      DHP=HP(1)-HGT
+c     print*, ATIME,DAP,DHP
+      FIM0=AP(1)-DAP
+      THM(1)=TH0
+      FIM(1)=0.
+      HTS(1)=HGT
+      IF (NA.GT.1) THEN
+        DO J=2,NA
+          AP1=(AP(J)-DAP)-FIM0
+          ZP1=90.-(HP(J)-DHP)
+          SA1=SCAANG(AP1,ZP1,0.,TH0)
+c         IF (ABS(SA1/SA(J)-1.).GT.0.05) print*,J,SA(J),SA1
+          THM(J)=ZP1
+          FIM(J)=AP1
+          HTS(J)=HGT
+        ENDDO
+      ENDIF
+C
+      CALL INTENS(NW,SOLID,NA,HTS,U,U2,DST,IFLG)
+      IF (IFLG.EQ.-2) IFLG=0
+      IF (IFLG.NE.0) THEN
+         IF (IFLG.EQ.-1) ERC(11:32)='DTLND2: NO DIRECT DATA'
+         IF (IFLG.EQ.-2) ERC(11:33)='DTLND2: NO DIFFUSE DATA'
+         GOTO 900
+      ENDIF
+C
+      DO I=1,NW
+        DO J=1,NA
+          TH(I,J)=THM(J)
+          FI(I,J)=FIM(J)
+        ENDDO
+      ENDDO
+C
+  900 RETURN
+      END
+C
+      SUBROUTINE DTLAND(IUI,ITYP,ALNGS,ALNG,ALAT,NW,WL,SOLID
+     &                 ,NA0,NA,SA,IY,IM,ID,JH,JM,JS,TM
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2,ERC,IFLG)
+C$NAME DTLAND
+C$LINK RDDT11 RDLB11 RDDT10 RDLB10 SUNH
+C$LINK INTENS CALANG DEG
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C$PSET RDDT11.KNW=KNW; RDDT11.KNA=KNA
+C$PSET RDDT10.KNW=KNW; RDDT10.KNA=KNA
+C$PSET INTENS.KNW=KNW; INTENS.KNA=KNA
+C
+      CHARACTER ERC*(*)
+      CHARACTER ALINE*256
+      DIMENSION WL(KNW),SOLID(KNW),SA(KNA),THM(KNA),FIM(KNA)
+     &         ,TH(KNW,KNA),FI(KNW,KNA),U(KNW,KNA),U2(KNW,KNA)
+      DIMENSION HTS(KNA)
+C
+      DT=51.0/3600.0
+C
+      ERC=' '
+      IFLG=-9
+      IF (ITYP.EQ.11) THEN
+         CALL RDDT11(IUI,ALINE,NW,NA,U,ERC)
+         IST=1
+      ELSE
+         CALL RDDT10(IUI,ALINE,NW,NA,SA,U,ERC)
+         IST=10
+      ENDIF
+      IF (ERC.NE.' ') GOTO 900
+      IF (NA.GT.NA0) NA=NA0
+C
+      ERC=ALINE(IST:IST+7)//'  '
+      IFLG=0
+      IF (NA.LE.0) THEN
+         ERC(11:25)='DTLAND: NO DATA'
+         IFLG=-8
+         GOTO 900
+      ENDIF
+C
+      IF (ITYP.EQ.11) THEN
+         CALL RDLB11(ALINE,IY,IM,ID,JH,JM,JS,JFLG)
+      ELSE
+         CALL RDLB10(ALINE,IY,IM,ID,JH,JM,JS,JFLG)
+      ENDIF
+      TM=JH+JM/60.0+JS/3600.0
+      CALL SUNH(IY,IM,ID,TM,ALAT,ALNG,ALNGS,DT,DST,HGT,FAI)
+      FAI=DEG(FAI,0)
+      TH0=90.-HGT
+C
+      CALL CALANG(JFLG,TH0,NA,SA,THM,FIM,IDRCT,MXIDX)
+      NA=MXIDX
+      IF (IDRCT.EQ.1) THEN
+         DO J=1,NA
+           HTS(J)=HGT
+         ENDDO
+         CALL INTENS(NW,SOLID,NA,HTS,U,U2,DST,IFLG)
+         IF (IFLG.EQ.-2) IFLG=0
+         IF (IFLG.NE.0) THEN
+            IF (IFLG.EQ.-1) ERC(11:32)='DTLAND: NO DIRECT DATA'
+            IF (IFLG.EQ.-2) ERC(11:33)='DTLAND: NO DIFFUSE DATA'
+            GOTO 900
+         ENDIF
+      ELSE
+         IF (IDRCT.LT.1) ERC(11:39)='DTLAND: NO DIRECT MEASUERMENT'
+         IF (IDRCT.GT.1) ERC(11:38)='DTLAND: ABNORMAL DATA FORMAT'
+         IFLG=-7
+         GOTO 900
+      ENDIF
+C
+      DO I=1,NW
+        DO J=1,NA
+          TH(I,J)=THM(J)
+          FI(I,J)=FIM(J)
+        ENDDO
+      ENDDO
+C
+  900 RETURN
+      END
+C
+      SUBROUTINE DTSHIP(IUI,ITYP,IANG,IDBG,NG1,NG2,ALNGS,NW,WL,SOLID
+     &                 ,IY,IM,ID,JH,JM,JS,TM,ALAT,ALNG,NA
+     &                 ,TH0,FAI,DST,THM,FIM,TH,FI,U,U2
+     &                 ,PT0,RL0,DHT,DFAI,SH0,SV0,ASPN,CSA,DZN
+     &                 ,FH0,FV0,ASPF,CO,DFI,FC,ERC,IFLG)
+C$NAME DTSHIP
+C$LINK RDDT20 RDLB20 RDDT21 RDLB21 RDDT22 SUNH
+C$LINK INTENS AGCRCT DEG
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C$PSET RDDT20.KNW=KNW; RDDT20.KNA=KNA
+C$PSET RDDT21.KNW=KNW; RDDT21.KNA=KNA
+C$PSET RDDT22.KNW=KNW; RDDT22.KNA=KNA
+C$PSET INTENS.KNW=KNW; INTENS.KNA=KNA
+C$PSET AGCRCT.KNW=KNW; AGCRCT.KNA=KNA
+C
+      CHARACTER ERC*(*)
+      CHARACTER ALINE*256
+      DIMENSION WL(KNW),SOLID(KNW),SA(KNA),THM(KNA),FIM(KNA)
+     &         ,TH(KNW,KNA),FI(KNW,KNA),U(KNW,KNA),U2(KNW,KNA)
+      DIMENSION FC(5)
+      DIMENSION AP(KNW,KNA),HP(KNW,KNA),KFLG(KNA)
+     &         ,FH(KNW,KNA),FV(KNW,KNA),SH(KNW,KNA),SV(KNW,KNA)
+     &         ,PT(KNW,KNA),RL(KNW,KNA)
+      DIMENSION UTM(KNA),FIS(KNA),HTS(KNA),APC(KNW,KNA),HPC(KNW,KNA)
+C
+      DATA TISEC /12.0/
+C
+      DT=51.0/3600.0
+C
+      ERC=' '
+      IFLG=-9
+      IF (ITYP.EQ.20) THEN
+         CALL RDDT20(IUI,2,ALINE,NW,NA,SA
+     &                          ,U,AP,HP,FH,FV,SH,SV,PT,RL,MFLG,ERC)
+      ELSE IF (ITYP.EQ.21) THEN
+         CALL RDDT21(IUI,2,ALINE,NW,NA,SA,UTM
+     &                          ,U,AP,HP,FH,FV,SH,SV,PT,RL,MFLG,ERC)
+      ELSE
+         CALL RDDT22(IUI,2,ALINE,NW,NA,SA,UTM
+     &                          ,U,AP,HP,FH,FV,SH,SV,PT,RL,MFLG,ERC)
+      ENDIF
+      IF (ERC.NE.' ') GOTO 900
+C
+      ERC=ALINE(1:8)//'  '
+      IFLG=0
+      IF (NA.LE.0) THEN
+         ERC(11:25)='DTSHIP: NO DATA'
+         IFLG=-8
+         GOTO 900
+      ENDIF
+C
+      IF (ITYP.EQ.20) THEN
+         CALL RDLB20(ALINE,IY,IM,ID,JH,JM,JS,ALAT,ALNG,JFLG)
+         TM=JH+JM/60.0+JS/3600.0
+         DO J=1,NA
+           T=TM+TISEC*(J-1)/3600.0
+           CALL SUNH(IY,IM,ID,T,ALAT,ALNG,ALNGS,DT,DST,HGT1,FAI1)
+           FIS(J)=DEG(FAI1,0)
+           HTS(J)=HGT1
+         ENDDO
+      ELSE
+         CALL RDLB21(ALINE,IY,IM,ID,JH,JM,JS,ALAT,ALNG,JFLG
+     &                    ,IYU,IMU,IDU,JHU,JMU,JSU)
+         TM=JH+JM/60.0+JS/3600.0
+         TM1=JHU+JMU/60.0+JSU/3600.0
+         DO J=1,NA
+           IF (UTM(J).LT.0) THEN
+              T=TM1+TISEC*(J-1)/3600.0
+              CALL SUNH(IYU,IMU,IDU,T,ALAT,ALNG,0.,DT,DST,HGT1,FAI1)
+           ELSE
+              T=UTM(J)
+              CALL SUNH(IYU,IMU,IDU,T,ALAT,ALNG,0.,DT,DST,HGT1,FAI1)
+           ENDIF
+           FIS(J)=DEG(FAI1,0)
+           HTS(J)=HGT1
+         ENDDO
+      ENDIF
+      FAI=FIS(1)
+      TH0=90.-HTS(1)
+C
+      CALL INTENS(NW,SOLID,NA,HTS,U,U2,DST,IFLG)
+      IF (IFLG.NE.0) THEN
+         IF (IFLG.EQ.-1) ERC(11:32)='DTSHIP: NO DIRECT DATA'
+         IF (IFLG.EQ.-2) ERC(11:33)='DTSHIP: NO DIFFUSE DATA'
+         GOTO 900
+      ENDIF
+C
+      DO J=1,NA
+        IF (HP(1,J).GT.90.) THEN
+           KFLG(J)=-1
+        ELSE
+           KFLG(J)=1
+        ENDIF
+        DO I=1,NW
+          AP(I,J)=DEG(AP(I,J),0)-DFAI
+          HP(I,J)=HP(I,J)-DHT
+          IF (KFLG(J).LT.0) THEN
+             HP(I,J)=180.-HP(I,J)
+             AP(I,J)=DEG(AP(I,J)+180.,0)
+          ENDIF
+          PT(I,J)=PT(I,J)-PT0
+          RL(I,J)=RL(I,J)-RL0
+        ENDDO
+      ENDDO
+C
+      IF (IANG.GT.0) THEN
+         CALL AGCRCT(IUI,IDBG,NG1,NG2,FIS,HTS,SA
+     &           ,NW,NA,KFLG,AP,HP,FH,FV,SH,SV,PT,RL,APC,HPC,JFG
+     &           ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC,ERC,IFLG)
+         IF (IFLG.NE.0) GOTO 900
+      ELSE
+         APM=0.
+         HPM=0.
+         DO I=1,NW
+           APM=APM+AP(I,1)
+           HPM=HPM+HP(I,1)
+         ENDDO
+         APM=APM/FLOAT(NW)
+         HPM=HPM/FLOAT(NW)
+         JFG=0
+         DAP=DEG(APM,JFG)-DEG(FIS(1),JFG)
+         DO I=1,NW
+           DHP=HPM-HTS(1)
+           APC(I,1)=AP(I,1)-DAP
+           HPC(I,1)=HP(I,1)-DHP
+           DO J=2,NA
+             APC(I,J)=AP(I,J)-DAP
+             IF (ABS(APC(I,J)-APC(I,J-1)).GT.175.) DHP=-DHP
+             HPC(I,J)=HP(I,J)-DHP
+           ENDDO
+         ENDDO
+      ENDIF
+C
+      DO J=1,NA
+        N=0
+        THM(J)=0.
+        FIM(J)=0.
+        DO  I=1,NW
+          IF (HPC(I,J).GT.0.) THEN
+             TH(I,J)=90.-HPC(I,J)
+             FI(I,J)=DEG(APC(I,J),JFG)-DEG(FIS(J),JFG)
+             FI(I,J)=DEG(FI(I,J),JFG)
+             N=N+1
+             THM(J)=THM(J)+TH(I,J)
+             FIM(J)=FIM(J)+FI(I,J)
+          ELSE
+             TH(I,J)=-99.
+             FI(I,J)=-999.
+          ENDIF
+        ENDDO
+        IF (N.GT.0) THEN
+           THM(J)=THM(J)/FLOAT(N)
+           FIM(J)=FIM(J)/FLOAT(N)
+        ELSE
+           THM(J)=-99.
+           FIM(J)=-999.
+        ENDIF
+      ENDDO
+C
+  900 RETURN
+      END
+C
+      SUBROUTINE INTENS(NW,SOLID,NA,HTS,U,U2,DST,IFLG)
+C$NAME INTENS
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C
+      PARAMETER (PI=3.141592653590D0,RD=PI/180.0D0)
+C
+      DIMENSION SOLID(KNW),HTS(KNA),U(KNW,KNA),U2(KNW,KNA)
+C
+      N=0
+      DO I = 1,NW
+        IF (U(I,1).GT.0.) THEN
+           U(I,1)=U(I,1)*DST**2
+           N=N+1
+         ELSE
+           U(I,1)=0.
+        ENDIF
+        U2(I,1)=U(I,1)
+      ENDDO
+      IF (N.LE.0) THEN
+         IFLG=-1
+         GOTO 900
+      ENDIF
+C
+      N=0
+      IF (NA.GE.2) THEN
+         DO J=2,NA
+           EM=1/COS((90.-HTS(J))*RD)
+           DO I = 1,NW
+             IF (U(I,J).GT.0.) THEN
+                U2(I,J)=U(I,J)*DST**2/SOLID(I)
+                IF (U(I,1).GT.0.) THEN
+                   U(I,J)=U2(I,J)/U(I,1)/EM
+                   N=N+1
+                ELSE
+                   U(I,J)=0.
+                ENDIF
+             ELSE
+                U(I,J)=0.
+                U2(I,J)=U(I,J)
+             ENDIF
+           ENDDO
+         ENDDO
+      ENDIF
+      IF (N.LE.0) IFLG=-2
+C
+  900 RETURN
+      END
+C
+      SUBROUTINE AGCRCT(IUI,IDBG,NG1,NG2,FIS,HTS,SA
+     &           ,NW,NA,KFLG,AP,HP,FH,FV,SH,SV,PT,RL,APC,HPC,JFG
+     &           ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC,ERC,IFLG)
+C$NAME AGCRCT
+C$LINK MESPOS PSFISH PSNARW GTSUNP GTANGP SCAANG DEG
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C$PSET MESPOS.KNW=KNW; MESPOS.KNA=KNA
+C
+      PARAMETER (PI=3.141592653590D0,RD=PI/180.0D0)
+C
+      CHARACTER ERC*(*)
+      DIMENSION FC(5)
+      DIMENSION AP(KNW,KNA),HP(KNW,KNA),KFLG(KNA)
+     &         ,FH(KNW,KNA),FV(KNW,KNA),SH(KNW,KNA),SV(KNW,KNA)
+     &         ,PT(KNW,KNA),RL(KNW,KNA)
+      DIMENSION FIS(KNA),HTS(KNA),SA(KNA),APC(KNW,KNA),HPC(KNW,KNA)
+C
+      DATA DPMX,DFMX,DNMX /10., 2., 0.5/
+C
+      J=1
+      FAI=FIS(J)
+      HGT=HTS(J)
+      KFG=KFLG(J)
+      SA0=SA(J)
+      JFGG=-1
+      JFG=-1
+      N=0
+      DO WHILE((JFG.LT.0).AND.(N.LT.NW))
+        N=N+1
+        IF (HP(N,J).GT.0.) THEN
+           PT1=PT(N,J)
+           RL1=RL(N,J)
+           AP1=AP(N,J)
+           HP1=HP(N,J)
+           CALL GTSUNP(AP1,HP1,PFI,PHT,FGP,PT1,RL1,FAI,HGT,IFGP)
+           IF (IFGP.GT.0) THEN
+              IF (ABS(FGP).GE.135.) THEN
+                 JFGG=1
+              ELSE
+                 JFGG=0
+              ENDIF
+              SAP=SCAANG(PFI,90.-PHT,FAI,90.-HGT)
+              IF (ABS(SAP).LE.DPMX) JFG=JFGG
+           ENDIF
+        ENDIF
+      ENDDO
+      IF (JFG.LT.0) JFG=JFGG 
+      IF (JFG.LT.0) THEN
+         ERC(11:32)='AGCRCT: NO FIRST ANGLE'
+         IFLG=-3
+         GOTO 900
+      ENDIF
+C
+      CALL MESPOS(NW,NA,J,KFG,SA0,AP,HP,FH,FV,SH,SV,PT,RL,FAI,HGT
+     &           ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC
+     &           ,DPMX,DFMX,DNMX
+     &           ,NP,AP0,HP0,FGP0,NF,AF0,HF0,FGF0,NN,AN0,HN0,FGN0,JFG)
+      FG0=FGP0
+      IF (IDBG.GT.0) THEN
+         NG1=NG1+1
+         WRITE(IUI+4,10) NG1,J,AF0,HF0,FGF0,AN0,HN0,FGN0,AP0,HP0,FGP0
+   10    FORMAT(I5,I3,9F8.2)
+      ENDIF
+C
+      DO I=1,NW
+        IF (HP(I,J).GT.0.) THEN
+           PT1=PT(I,J)
+           RL1=RL(I,J)
+           AP1=AP(I,J)
+           HP1=HP(I,J)
+           FH1=FH(I,J)
+           FV1=FV(I,J)
+           SH1=SH(I,J)
+           SV1=SV(I,J)
+           AP2=AP1
+           IF (KFG.LT.0) AP2=DEG(AP1-180.,JFG)
+           CALL PSFISH(FH1,FV1,AP2,FH0,FV0,ASPF,CO,DFI,FC,AF,HF)
+           CALL GTSUNP(AF,HF,FFI,FHT,FGF,PT1,RL1,FAI,HGT,IFGF)
+           CALL PSNARW(SH1,SV1,AP1,HP1,SH0,SV0,ASPN,CSA,DZN,SA1,AN,HN)
+           CALL GTSUNP(AN,HN,SFI,SHT,FGN,PT1,RL1,FAI,HGT,IFGN)
+           CALL GTSUNP(AP1,HP1,PFI,PHT,FGP,PT1,RL1,FAI,HGT,IFGP)
+           IF (ABS(FGN).LE.360.) THEN
+              FG0=FGN
+           ELSE IF (ABS(FGN0).LE.360.) THEN
+              FG0=FGN0
+           ELSE IF (ABS(FGP).LE.360.) THEN
+              FG0=FGP
+           ELSE IF (ABS(FGP0).LE.360.) THEN
+              FG0=FGP0
+           ELSE IF (ABS(FGF).LE.360.) THEN
+              FG0=FGF
+           ELSE IF (ABS(FGF0).LE.360.) THEN
+              FG0=FGF0
+           ELSE
+              FG0=-999.
+           ENDIF
+           IF (ABS(FG0).LE.360.) THEN
+              CALL GTANGP(AP1,HP1,PFI,PHT,FG0,PT1,RL1,IFGP)
+              CALL GTANGP(AF,HF,FFI,FHT,FG0,PT1,RL1,IFGF)
+              CALL GTANGP(AN,HN,SFI,SHT,FG0,PT1,RL1,IFGN)
+              IF (IDBG.GT.0) THEN
+                 NG2=NG2+1
+                 SAP=SCAANG(PFI,90.-PHT,FAI,90.-HGT)
+                 SAF=SCAANG(FFI,90.-FHT,FAI,90.-HGT)
+                 SAN=SCAANG(SFI,90.-SHT,FAI,90.-HGT)
+c                write(*,10) NG2,J,FGF,FGF0,FGN,FGN0,FGP,FGP0,FG0
+                 WRITE(IUI+1,10) NG2,J,AF,HF,FGF,AN,HN,FGN
+     &                                          ,AP1,HP1,FG0
+                 WRITE(IUI+2,10) NG2,J,SA0,SAP,SA1,SAF,SAN
+     &                                          ,PFI,FFI,SFI,FAI
+                 WRITE(IUI+3,10) NG2,J,SA0,SAP,SA1,SAF,SAN
+     &                                          ,PHT,FHT,SHT,HGT
+              ENDIF
+              APC(I,J)=PFI
+              HPC(I,J)=PHT
+           ELSE
+              APC(I,J)=-999.
+              HPC(I,J)=-99.
+           ENDIF
+        ELSE
+           APC(I,J)=-999.
+           HPC(I,J)=-99.
+        ENDIF
+      ENDDO
+C
+      DO J=2,NA
+        FAI1=FIS(J)
+        HGT1=HTS(J)
+        KFG=KFLG(J)
+        SA0=SA(J)
+        CALL MESPOS(NW,NA,J,KFG,SA0,AP,HP,FH,FV,SH,SV,PT,RL,FAI1,HGT1
+     &        ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC
+     &        ,DPMX,DFMX,DNMX
+     &        ,NP,AP0,HP0,FGP0,NF,AF0,HF0,FGF0,NN,AN0,HN0,FGN0,JFG)
+        IF (NN.GT.0) THEN
+           FG0=FGN0
+        ELSE
+           FG0=FGF0
+        ENDIF
+        IF (IDBG.GT.0) THEN
+           NG1=NG1+1
+           WRITE(IUI+4,10) NG1,J,AF0,HF0,FGF0,AN0,HN0,FGN0,AP0,HP0,FGP0
+        ENDIF
+C
+        DO I = 1,NW
+          IF (HP(I,J).GT.0.) THEN
+             PT1=PT(I,J)
+             RL1=RL(I,J)
+             AP1=AP(I,J)
+             HP1=HP(I,J)
+             FH1=FH(I,J)
+             FV1=FV(I,J)
+             SH1=SH(I,J)
+             SV1=SV(I,J)
+             AP2=AP1
+             IF (KFG.LT.0) AP2=DEG(AP1-180.,JFG)
+             CALL PSFISH(FH1,FV1,AP2,FH0,FV0,ASPF,CO,DFI,FC,AF,HF)
+             CALL GTSUNP(AF,HF,FFI,FHT,FGF,PT1,RL1,FAI1,HGT1,IFGF)
+             SAF=SCAANG(FFI,90.-FHT,FAI1,90.-HGT1)
+             CALL PSNARW(SH1,SV1,AP1,HP1,SH0,SV0,ASPN,CSA,DZN,SA1,AN,HN)
+             CALL GTSUNP(AN,HN,SFI,SHT,FGN,PT1,RL1,FAI,HGT,IFGN)
+             SAN=SCAANG(SFI,90.-SHT,FAI1,90.-HGT1)
+             IF (ABS(FGN).LE.360.) THEN
+                FG0=FGN
+             ELSE IF (ABS(FGN0).LE.360.) THEN
+                FG0=FGN0
+             ELSE IF (ABS(FGF).LE.360.) THEN
+                FG0=FGF
+             ELSE IF (ABS(FGF0).LE.360.) THEN
+                FG0=FGF0
+             ELSE
+                FG0=-999.
+             ENDIF
+             IF (ABS(FG0).LE.360.) THEN
+                CALL GTANGP(AP1,HP1,PFI,PHT,FG0,PT1,RL1,IFGP)
+                CALL GTANGP(AF,HF,FFI,FHT,FG0,PT1,RL1,IFGF)
+                CALL GTANGP(AN,HN,SFI,SHT,FG0,PT1,RL1,IFGN)
+                SAP=SCAANG(PFI,90.-PHT,FAI1,90.-HGT1)
+                SAF=SCAANG(FFI,90.-FHT,FAI1,90.-HGT1)
+                SAN=SCAANG(SFI,90.-SHT,FAI1,90.-HGT1)
+                IF (IDBG.GT.0) THEN
+                   NG2=NG2+1
+                   FGP=FGP0
+c                  write(*,10) NG2,J,FGF,FGF0,FGN,FGN0,FGP,FGP0,FG0
+                   WRITE(IUI+1,10) NG2,J,AF,HF,FGF,AN,HN,FGN
+     &                                      ,AP1,HP1,FG0
+                   WRITE(IUI+2,10) NG2,J,SA0,SAP,SA1,SAF,SAN
+     &                                      ,PFI,FFI,SFI,FAI1
+                   WRITE(IUI+3,10) NG2,J,SA0,SAP,SA1,SAF,SAN
+     &                                      ,PHT,FHT,SHT,HGT1
+                ENDIF
+                APC(I,J)=PFI
+                HPC(I,J)=PHT
+             ELSE
+                APC(I,J)=-999.
+                HPC(I,J)=-99.
+             ENDIF
+          ELSE
+             APC(I,J)=-999.
+             HPC(I,J)=-99.
+          ENDIF
+        ENDDO
+      ENDDO
+C
+  900 RETURN
+      END
+C
+C ----------------------------------------------------------------------
+      SUBROUTINE MESPOS(NW,NA,J,KFG,SA0,AP,HP,FH,FV,SH,SV,PT,RL,FAI,HGT
+     &           ,SH0,SV0,ASPN,CSA,DZN,FH0,FV0,ASPF,CO,DFI,FC
+     &           ,DPMX,DFMX,DNMX
+     &           ,NP,AP0,HP0,FGP0,NF,AF0,HF0,FGF0,NN,AN0,HN0,FGN0,JFG)
+C$NAME MESPOS
+C$LINK PSFISH PSNARW GTSUNPP SCAANG CLMEAN
+C$PRPC
+      PARAMETER (KNW=7,KNA=50)
+C
+      DIMENSION FC(5)
+      DIMENSION AP(KNW,KNA),HP(KNW,KNA)
+     &         ,FH(KNW,KNA),FV(KNW,KNA),SH(KNW,KNA),SV(KNW,KNA)
+     &         ,PT(KNW,KNA),RL(KNW,KNA)
+      DIMENSION APM(KNW),HPM(KNW),AFM(KNW),HFM(KNW),ANM(KNW),HNM(KNW)
+     &         ,FGPM(KNW),FGFM(KNW),FGNM(KNW)
+C
+      NP=0
+      NF=0
+      NN=0
+      DO I=1,NW
+        IF (HP(I,J).GT.0.) THEN
+           PT1=PT(I,J)
+           RL1=RL(I,J)
+           AP1=AP(I,J)
+           HP1=HP(I,J)
+           FH1=FH(I,J)
+           FV1=FV(I,J)
+           SH1=SH(I,J)
+           SV1=SV(I,J)
+           AP2=AP1
+           IF (KFG.LT.0) AP2=DEG(AP1-180.,JFG)
+           CALL PSFISH(FH1,FV1,AP2,FH0,FV0,ASPF,CO,DFI,FC,AF,HF)
+           CALL GTSUNP(AF,HF,FFI,FHT,FGF,PT1,RL1,FAI,HGT,IFGF)
+           CALL PSNARW(SH1,SV1,AP1,HP1,SH0,SV0,ASPN,CSA,DZN,SA1,AN,HN)
+           CALL GTSUNP(AN,HN,SFI,SHT,FGN,PT1,RL1,FAI,HGT,IFGN)
+           IF (J.EQ.1) THEN
+              CALL GTSUNP(AP1,HP1,PFI,PHT,FGP,PT1,RL1,FAI,HGT,IFGP)
+              IF (IFGP.GT.0) THEN
+                 SAP=SCAANG(PFI,90.-PHT,FAI,90.-HGT)
+                 IF (ABS(SAP).LE.DPMX) THEN
+                    NP=NP+1
+                    APM(NP)=PFI
+                    HPM(NP)=PHT
+                    FGPM(NP)=DEG(FGP,JFG)
+                 ENDIF
+              ENDIF
+           ENDIF
+           IF (IFGF.GT.0) THEN
+              SAF=SCAANG(FFI,90.-FHT,FAI,90.-HGT)
+              IF (ABS(SAF).LE.DFMX) THEN
+                 NF=NF+1
+                 AFM(NF)=FFI
+                 HFM(NF)=FHT
+                 FGFM(NF)=DEG(FGF,JFG)
+              ENDIF
+           ENDIF
+           IF (IFGN.GT.0) THEN
+              SAN=SCAANG(SFI,90.-SHT,FAI,90.-HGT)
+              IF (ABS(SA1-SA0).LE.DNMX) THEN
+                 NN=NN+1
+                 ANM(NN)=SFI
+                 HNM(NN)=SHT
+                 FGNM(NN)=DEG(FGN,JFG)
+              ENDIF
+           ENDIF
+        ENDIF
+      ENDDO
+C
+      IF (NP.GT.0) THEN
+         CALL CLMEAN(NP,APM,AP0,STD,RMS)
+         CALL CLMEAN(NP,HPM,HP0,STD,RMS)
+         CALL CLMEAN(NP,FGPM,FGP0,STD,RMS)
+      ELSE
+         HP0=-99.
+         AP0=-999.
+         FGP0=-999.
+      ENDIF
+      IF (NF.GT.0) THEN
+         CALL CLMEAN(NF,AFM,AF0,STD,RMS)
+         CALL CLMEAN(NF,HFM,HF0,STD,RMS)
+         CALL CLMEAN(NF,FGFM,FGF0,STD,RMS)
+      ELSE
+         HF0=-99.
+         AF0=-999.
+         FGF0=-999.
+      ENDIF
+      IF (NN.GT.0) THEN
+         CALL CLMEAN(NN,ANM,AN0,STD,RMS)
+         CALL CLMEAN(NN,HNM,HN0,STD,RMS)
+         CALL CLMEAN(NN,FGNM,FGN0,STD,RMS)
+      ELSE
+         HN0=-99.
+         AN0=-999.
+         FGN0=-999.
+      ENDIF
+      RETURN
+      END
+C
+      SUBROUTINE GTSUNP(AP,HP,PFI,PHT,FG,PT,RL,FAI,HGT,IFGP)
+C$NAME GTSUNP
+C$LINK GETXYZ GETPOL ROTATU CLDRFT DEG
+C
+      IF ((ABS(AP).LE.360.).AND.(HP.GT.0.)) THEN
+         CALL GETXYZ(FAI,HGT,RX,RY,RZ)
+         CALL GETXYZ(AP,HP,PXB,PYB,PZB)
+         CALL ROTATU(-RL,PZB,PXB,PZ1,PX1)
+         CALL ROTATU(-PT,PYB,PZ1,PY1,PZR)
+         CALL CLDRFT(PX1,PY1,RX,RY,FG)
+         CALL ROTATU( FG,PX1,PY1,PXR,PYR)
+         CALL GETPOL(PXR,PYR,PZR,PFI,PHT)
+         PFI=DEG(PFI,0)
+         IFGP=1
+      ELSE
+         PFI=-999.
+         PHT=-99.
+         FG=-999.
+         IFGP=-1
+      ENDIF
+      RETURN
+      END
+C
+      SUBROUTINE GTANGP(AP,HP,PFI,PHT,FG,PT,RL,IFGP)
+C$NAME GTANGP
+C$LINK GETXYZ GETPOL ROTATU DEG
+C
+      IF ((ABS(AP).LE.360.).AND.(HP.GT.0.)) THEN
+         CALL GETXYZ(AP,HP,PXB,PYB,PZB)
+         CALL ROTATU(-RL,PZB,PXB,PZ1,PX1)
+         CALL ROTATU(-PT,PYB,PZ1,PY1,PZR)
+         CALL ROTATU( FG,PX1,PY1,PXR,PYR)
+         CALL GETPOL(PXR,PYR,PZR,PFI,PHT)
+         PFI=DEG(PFI,0)
+         IFGP=1
+      ELSE
+         PFI=-999.
+         PHT=-99.
+         IFGP=-1
+      ENDIF
+      RETURN
+      END
+C

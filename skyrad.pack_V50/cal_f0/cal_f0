@@ -1,0 +1,250 @@
+C$OUTF cal_f0.f
+C$LIBF /Users/makibo/Fortran/LIB/SKYLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/POMLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/MATLIB/A
+C$LIBF /Users/makibo/Fortran/LIB/BASLIB/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBC1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBM2/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBR1/A
+C$LIBF /Users/makibo/Fortran/LIB_Nakajima/LBR2/A
+C$NAME cal_f0
+C$LINK RDDATF PROCF0 CALCDY CALCFN CALCFI CLLNGE CLLNG0 F0MEAN WTCALF WTSRTF
+C$LINK RDCLFP GETPOS UTLSPC SORT1
+C
+C --- Note
+C   Skyradiometer data analyzing program
+C   For PREDE instruments POM-01L/POM-01MKII
+C
+C  (1) Determination of calibration constants(F0)
+C
+C --- History
+C   2002.11.15 Created from 'fproc?' by M.Yamano
+C   2003.02.25 Added parameters TMAX, WMIN.
+C   2003.03.05 Added 'ins.para' replacement option.
+C   2003.09.16 Debugged.
+C   2004.12.06 Start on Mac.
+C   2006.04.05 Added output option IPLT.
+C
+C --- I/O files
+C  cal_f0.par          I    processing control file
+C  fname               I    processing dates file
+C  F0d/(yy)yymmdd.w??  I    measured datafile
+C  f0_w??.out          O    results files for calculation of F0
+C  F0.out              O    Determined F0 values
+C  F0Nd.w??            O   (normal)  Langley plot for a data set (IPLT>0)
+C  F0Id.w??            O    Improved Langley plot for a data set (IPLT>0)
+C  F0Ad.w??            O    Improved Langley plot for all data sets(IPLT>0)
+C ----------------------------------------------------------------------
+C$PSET KNN=3000; KNDY=500; KNW=20; KDAY=30
+C$PRPC
+      PARAMETER (KNN=3000,KNDY=500,KNW=20,KDAY=30)
+C$PSET RPINSP.KNW=KNW; RPINSP.KDAY=KDAY
+C$PSET RDDATF.KNN=KNN
+C$PSET PROCF0.KNN=KNN; PROCF0.KNDY=KNDY
+C$PSET CALCDY.KNN=KNN; CALCDY.KNDY=KNDY
+C$PSET CALCFN.KNN=KNN
+C$PSET CALCFI.KNN=KNN
+C$PSET CLLNGE.KNN=KNN
+C$PSET CLLNG0.KNN=KNN
+C$PSET F0MEAN.KNDY=KNDY
+C$PSET WTCALF.KNN=KNN; WTCALF.KNDY=KNDY
+C$PSET WTSRTF.KNN=KNN; WTSRTF.KNDY=KNDY
+C
+      PARAMETER (PI=3.141592653589793,RAD=PI/180.0)
+C
+      CHARACTER ERC*64
+      CHARACTER FLI*80,FLD*80,FLO*80,LB*2,ATRF*4,ATR*4,DIR*4
+      CHARACTER PFIL*80,FLI0*80
+C
+      DIMENSION IYD(KNN),IMD(KNN),IDD(KNN),TMD(KNN),EMS(KNN)
+     &         ,FOBS(KNN),TAR(KNN),TAO(KNN),TAUE(KNN),TAUS(KNN)
+     &         ,F0N(KNDY),SGN(KNDY),TTN(KNDY),NON(KNDY)
+     &         ,F0I(KNDY),SGI(KNDY),W0I(KNDY),NOI(KNDY)
+     &         ,XXX(KNDY),IXXX(KNDY),IDDAY(KNDY),IAMPM(KNDY)
+      DIMENSION WVDAT(KNW),F0DAT(3,KNW)
+C
+      DATA NMIN,SGMX,TMIN,TMAX,WMIN,WMAX /10, 0.1, 0.01, 0.3, 0., 2./
+      DATA DIR,ATR /'F0d/','.w00'/
+C
+      ERC=' '
+      IUI=1
+      OPEN (IUI,FILE='cal_f0.par',STATUS='OLD')
+      CALL RDCLFP(IUI,IPLT,IRPL,PFIL,NFL,ERC)
+      CLOSE (IUI)
+      IF (ERC.NE.' ') GOTO 900
+C
+      NFNM0=0
+      IUF=3
+      IUO=9
+      IF (IPLT.GT.0) THEN
+         IUP=10
+      ELSE
+         IUP=0
+      ENDIF
+      JEND=0
+      NW=0
+      IW=0
+      DO WHILE ((IW.LT.KNW).AND.(JEND.EQ.0))
+        IW=IW+1
+        WRITE(LB,5) IW
+    5   FORMAT(I2)
+        IF (IW.LT.10) THEN
+           IST=2
+        ELSE
+           IST=1
+        ENDIF
+        ATRF=ATR(1:1+IST)//LB(IST:2)
+        WL00=-999.
+        NDT=0
+        OPEN (IUF,FILE='fname',STATUS='OLD')
+C
+   10   READ(IUF,15,END=100,ERR=100) FLI
+   15   FORMAT(A80)
+        CALL GETPOS(FLI,'.',80,IL)
+        IF (IL.EQ.1) GOTO 100
+        IF (IL.GT.0) FLI=FLI(1:IL-1)
+        CALL UTLSPC(FLI,NFNM)
+        FLD=DIR//FLI(1:NFNM)//ATRF
+        IF ((IRPL.GT.0).AND.(NFNM0.EQ.0)) THEN
+           NFNM0=NFNM
+           FLI0=FLI
+        ENDIF
+        NTT=NDT
+        OPEN (IUI,FILE=FLD,STATUS='OLD',ERR=50)
+        CALL RDDATF(IUI,WL0,JWV,NDT,IYD,IMD,IDD,TMD,EMS
+     &             ,FOBS,TAR,TAO,TAUE,TAUS)
+   50   CLOSE (IUI)
+        IF (NTT.EQ.0) WL00=WL0
+        IF (ABS(WL0-WL00).GT.1.E-9) THEN
+           ERC='Mismatch of input data files !'
+           GOTO 900
+        ENDIF
+        IF (NDT.LT.KNN)  GOTO 10
+C
+  100   IF (NDT.GT.0) THEN
+           FLO='f0_'//ATRF(2:4)//'.out'
+           OPEN (IUO,FILE=FLO,STATUS='UNKNOWN')
+           IF (IPLT.GT.0) THEN
+              OPEN (IUP  ,FILE='F0Nd'//ATRF,STATUS='UNKNOWN')
+              OPEN (IUP+1,FILE='F0Id'//ATRF,STATUS='UNKNOWN')
+              OPEN (IUP+2,FILE='F0Ad'//ATRF,STATUS='UNKNOWN')
+           ENDIF
+           CALL PROCF0(IUP,NDT,JWV,IYD,IMD,IDD,EMS,FOBS,TAR,TAO,TAUS
+     &          ,NDAY,IDDAY,IAMPM,F0N,SGN,TTN,NON,F0I,SGI,W0I,NOI
+     &          ,F0II,SGII,W0II,NOII,ERC)
+           IF (ERC.NE.' ') GOTO 190
+C
+           CALL F0MEAN(NDAY,F0N,SGN,TTN,NON,F0I,SGI,W0I,NOI,NN,FN00,SGN0
+     &                ,NI,FI00,SGI0,NMIN,SGMX,TMIN,TMAX,WMIN,WMAX)
+           CALL WTCALF(IUO,WL0,NDAY,IYD,IMD,IDD,IAMPM,IDDAY
+     &                ,F0N,SGN,TTN,NON,F0I,SGI,W0I,NOI
+     &                ,F0II,SGII,W0II,NOII,NN,FN00,SGN0
+     &                ,NI,FI00,SGI0,NMIN,SGMX,TMIN,TMAX,WMIN,WMAX)
+           DO I=1,NDAY
+             IF (TTN(I).GT.0.0) THEN
+                XXX(I)=SGN(I)*TTN(I)
+             ELSE
+                XXX(I)=999
+             ENDIF
+           ENDDO
+           CALL SORT1(NDAY,XXX,IXXX)
+           CALL WTSRTF(IUO,WL0,NDAY,IYD,IMD,IDD,IAMPM,IDDAY,IXXX
+     &                      ,F0N,SGN,TTN,NON,F0I,SGI,W0I,NOI)
+           NW=NW+1
+           WVDAT(NW)=WL00
+           F0DAT(1,NW)=FN00
+           F0DAT(2,NW)=FI00
+           F0DAT(3,NW)=F0II
+  190      CLOSE (IUO)
+           CLOSE (IUP)
+           CLOSE (IUP+1)
+           CLOSE (IUP+2)
+        ELSE
+           JEND=1
+        ENDIF
+        CLOSE (IUF)
+      ENDDO
+      IF (NW.GT.0) THEN
+         OPEN (IUO,FILE='F0.out',STATUS='UNKNOWN')
+         WRITE(IUO,200) (WVDAT(I),I=1,NW)
+  200    FORMAT('WL :',1P7E10.3)
+         WRITE(IUO,210) (F0DAT(1,I),I=1,NW)
+  210    FORMAT('F0N:',1P7E10.3)
+         WRITE(IUO,220) (F0DAT(2,I),I=1,NW)
+  220    FORMAT('F0I:',1P7E10.3)
+         WRITE(IUO,230) (F0DAT(3,I),I=1,NW)
+  230    FORMAT('F0A:',1P7E10.3)
+         CLOSE (IUO)
+         IF (IRPL.GT.0) CALL RPINSP(IUO,IRPL,PFIL,NFL,FLI0,NFNM0
+     &                             ,NW,WVDAT,F0DAT,ERC)
+      ENDIF
+C
+  900 IF (ERC.NE.' ') print*, ERC
+      STOP
+      END
+C
+      SUBROUTINE RPINSP(IU,IRPL,PFIL,NFL,FLI,NFNM,NWI,WVDAT,F0DAT,ERC)
+C$NAME RPINSP
+C$LINK RDINSP
+C$PRPC
+      PARAMETER (KNW=7,KDAY=30)
+C$PSET RDINSP.KNW=KNW; RDINSP.KDAY=KDAY
+C
+      CHARACTER ERC*(*)
+      CHARACTER SRNO*20
+      CHARACTER PFIL*80,FLI*80
+      DIMENSION WL(KNW),SOLID(KNW),F0D(KNW,KDAY),TJLC(KDAY)
+      DIMENSION WVDAT(KNW),F0DAT(3,KNW)
+C
+      OPEN (IU,FILE=PFIL(1:NFL),STATUS='OLD')
+      CALL RDINSP(IU,SRNO,ITYP,NW,WL,SOLID,NDY,F0D,TJLC,ERC)
+      CLOSE (IU)
+      IF (ERC.NE.' ') GOTO 900
+C
+      IF (NFNM.EQ.6) THEN
+         READ(FLI,10) IY,IM,ID
+   10    FORMAT(3I2)
+         IF (IY.GT.95) THEN
+            IY=IY+1900
+         ELSE
+            IY=IY+2000
+         ENDIF
+      ELSE
+         READ(FLI,20) IY,IM,ID
+   20    FORMAT(I4,2I2)
+      ENDIF
+      TM=0.0
+      NDY=1
+      DO IW=1,NW
+        IP=0
+        I=0
+        DO WHILE((I.LT.NWI).AND.(IP.EQ.0))
+          I=I+1
+          IF (ABS(WVDAT(I)-WL(IW)).LT.0.001E-4) IP=I
+        ENDDO
+        IF (IP.GT.0) THEN
+           F0D(IW,1)=F0DAT(IRPL,IP)
+        ELSE
+           F0D(IW,1)=-9.999E-4
+        ENDIF
+      ENDDO
+C
+      OPEN (IU,FILE=PFIL(1:NFL),STATUS='UNKNOWN')
+      WRITE(IU,50) SRNO,ITYP,NW
+   50 FORMAT('- instrument parameters -'/'"',A20,'"  : instrument S/N'
+     &   /I2,'  : instrument type (POM-01L:10,11/ POM-01MKII:20,21,22)'
+     &   /I2,'  : NW(number of wavelengths)/ WL[cm]/ SVA[sr]')
+      WRITE(IU,60) (WL(I),I=1,NW)
+      WRITE(IU,60) (SOLID(I),I=1,NW)
+   60 FORMAT(1P20E11.3)
+      WRITE(IU,70) NDY
+   70 FORMAT(I2,'  : NDAY(number of calib. constant data)/ '
+     &         ,'YYYY MM DD HR(GMT) F0(IW=1,NW)')
+      WRITE(IU,80) IY,IM,ID,TM,(F0D(IW,1),IW=1,NW)
+   80 FORMAT(I4,2I3,0PF5.1,1P20E11.3)
+      CLOSE (IU)
+C
+  900 RETURN
+      END
+C
