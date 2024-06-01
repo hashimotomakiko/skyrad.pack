@@ -1,0 +1,4 @@
+0 0 1 0 0 : IDT3 IDT4 IDT5 ILST IDBG(output option) - 1:create / 0:not
+0         : IANG(angle correction option) - 1:correct/ 0:not
+"obs.para.PREDE"   : observation parameter file name
+"ins.para.POM-01" : instrument parameter file name
